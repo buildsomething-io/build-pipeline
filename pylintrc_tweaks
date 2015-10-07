@@ -1,0 +1,3 @@
+# Local tweaks to pylintrc for this repo.
+[MESSAGES CONTROL]
+disable+ = ,logging-format-interpolation
