@@ -10,9 +10,9 @@ from boto.exception import BotoServerError
 import logging
 LOGGER = logging.getLogger(__name__)
 
-REPO_ORG = os.environ.get('REPO_ORG', 'foo')
-REPO_NAME = os.environ.get('REPO_NAME', 'bar')
-HANDLED_REPO = '{org}/{name}'.format(org=REPO_ORG, name=REPO_NAME)
+PIPELINE_REPO_ORG = os.environ.get('PIPELINE_REPO_ORG', 'foo')
+PIPELINE_REPO_NAME = os.environ.get('PIPELINE_REPO_NAME', 'bar')
+HANDLED_REPO = '{org}/{name}'.format(org=PIPELINE_REPO_ORG, name=PIPELINE_REPO_NAME)
 
 PROVISIONING_TOPIC = os.environ.get('PROVISIONING_TOPIC', 'insert_sns_arn_here')
 SITESPEED_TOPIC = os.environ.get('SITESPEED_TOPIC', 'insert_sns_arn_here')
@@ -31,11 +31,16 @@ def parse_webhook_payload(event, data):
         data (dict): payload from the webhook
 
     Returns:
-        None if no downstream action was required
+        None if no downstream action is required
         string: MessageId of the published SNS message if a followon action should be taken
     """
-    repo = data.get('repository')
-    repo_name = repo.get('full_name')
+    try:
+        repo = data.get('repository')
+        repo_name = repo.get('full_name')
+    except (AttributeError, KeyError) as _err:
+        LOGGER.error('Invalid webhook payload: {}'.format(data))
+        return None
+
     if repo_name != HANDLED_REPO:
         # We only want to take action on a specific repo, so
         # even if another repo gets configured to send webhooks
@@ -50,8 +55,8 @@ def parse_webhook_payload(event, data):
         LOGGER.debug('Deployment event passed to the handler.')
         msg_id = handle_deployment_event(
             PROVISIONING_TOPIC,
-            REPO_ORG,
-            REPO_NAME,
+            PIPELINE_REPO_ORG,
+            PIPELINE_REPO_NAME,
             data.get('deployment')
         )
 
@@ -60,20 +65,28 @@ def parse_webhook_payload(event, data):
         LOGGER.debug('Deployment status event passed to the handler.')
         msg_id = handle_deployment_status_event(
             SITESPEED_TOPIC,
-            REPO_ORG,
-            REPO_NAME,
+            PIPELINE_REPO_ORG,
+            PIPELINE_REPO_NAME,
             data.get('deployment'),
             data.get('deployment_status')
         )
 
     else:
-        LOGGER.debug('This event type does not need to be handled.')
+        LOGGER.debug('{} events do not need to be handled.'.format(event))
 
     return msg_id
 
 
 def is_valid_gh_event(event, data):
-    """ Verify that the webhook sent conforms to the GitHub API v3. """
+    """ Verify that the webhook sent conforms to the GitHub API v3.
+    Args:
+        event (string): GitHub event
+        data (dict): payload from the webhook
+
+    Returns:
+        True for valid GitHub events
+        False otherwise
+    """
     if not event:
         # This is not a valid webhook from GitHub because
         # those all send an X-GitHub-Event header.
@@ -119,12 +132,13 @@ def publish_sns_messsage(topic_arn, message):
     #         }
     #     }
     # }
-    publish_response = response.get('PublishResponse')
-    publish_result = publish_response and publish_response.get('PublishResult')
-    message_id = publish_result.get('MessageId')
+    try:
+        message_id = response.get('PublishResponse').get('PublishResult').get('MessageId')
+    except (AttributeError, KeyError) as _err:
+        message_id = None
 
     if not message_id:
-        raise SnsError('Could not publish message. Response was: {}'.format(publish_response))
+        raise SnsError('Could not publish message. Response was: {}'.format(response))
 
     LOGGER.debug('Successfully published MessageId {}'.format(message_id))
     return message_id

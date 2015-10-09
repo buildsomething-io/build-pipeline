@@ -4,7 +4,6 @@ Tests for the HTTP server
 from BaseHTTPServer import HTTPServer
 from unittest import TestCase
 
-from boto import connect_sns
 import json
 from mock import patch
 from moto import mock_sns
@@ -12,6 +11,7 @@ import requests
 import threading
 
 from ..build_pipeline import PipelineHttpRequestHandler, parse_webhook_payload
+from .utils import create_topic
 
 
 class ThreadedHTTPServer(HTTPServer, object):
@@ -79,15 +79,6 @@ class PipelineHandlerTestCase(TestCase):
         super(PipelineHandlerTestCase, self).setUp()
         self.handler = PipelineHttpRequestHandler
 
-    @classmethod
-    def create_topic(cls):
-        """ Create a topic so that we can publish to it. """
-        conn = connect_sns()
-        conn.create_topic("some-topic")
-        topics_json = conn.get_all_topics()
-        topic_arn = topics_json["ListTopicsResponse"]["ListTopicsResult"]["Topics"][0]['TopicArn']
-        return topic_arn
-
     def test_untriggered_repo(self):
         result = parse_webhook_payload('foo', {'repository': {'full_name': 'foo/untriggered'}})
         self.assertEqual(result, None)
@@ -98,7 +89,7 @@ class PipelineHandlerTestCase(TestCase):
 
     @mock_sns
     def test_deployment_event(self):
-        with patch('build_pipeline.helpers.PROVISIONING_TOPIC', self.create_topic()):
+        with patch('build_pipeline.helpers.PROVISIONING_TOPIC', create_topic()):
             result = parse_webhook_payload(
                 'deployment',
                 {'repository': {'full_name': 'foo/bar'}, 'deployment': {}}
@@ -115,7 +106,7 @@ class PipelineHandlerTestCase(TestCase):
 
     @mock_sns
     def test_deployment_status_success_event(self):
-        with patch('build_pipeline.helpers.SITESPEED_TOPIC', self.create_topic()):
+        with patch('build_pipeline.helpers.SITESPEED_TOPIC', create_topic()):
             result = parse_webhook_payload(
                 'deployment_status',
                 {'repository': {'full_name': 'foo/bar'}, 'deployment': {}, 'deployment_status': {'state': 'success'}}

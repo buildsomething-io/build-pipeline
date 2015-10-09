@@ -51,11 +51,11 @@ class PipelineHttpRequestHandler(BaseHTTPRequestHandler):
             return
 
         event = self.headers.get('X-GitHub-Event')
-        LOGGER.debug("Received GitHub event: {}".format(event))
 
-        if is_valid_gh_event(event=event, data=data):
+        if is_valid_gh_event(event, data):
             try:
-                parse_webhook_payload(event=event, data=data)
+                LOGGER.debug("Received GitHub event: {}".format(event))
+                parse_webhook_payload(event, data)
 
             except SnsError, err:
                 LOGGER.error(str(err))
