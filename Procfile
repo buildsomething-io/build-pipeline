@@ -1,1 +1,1 @@
-web: build_pipeline/build_pipeline.py
+web: python -m build_pipeline.build_pipeline

@@ -1,6 +1,8 @@
 """
 Helper methods for triggering the next step in the deployment pipeline
 """
+import hashlib
+import hmac
 import json
 import os
 
@@ -14,8 +16,13 @@ PIPELINE_REPO_ORG = os.environ.get('PIPELINE_REPO_ORG', 'foo')
 PIPELINE_REPO_NAME = os.environ.get('PIPELINE_REPO_NAME', 'bar')
 HANDLED_REPO = '{org}/{name}'.format(org=PIPELINE_REPO_ORG, name=PIPELINE_REPO_NAME)
 
+# The unique ARNs (Amazon Resource Name) for the SNS topics
 PROVISIONING_TOPIC = os.environ.get('PROVISIONING_TOPIC', 'insert_sns_arn_here')
 SITESPEED_TOPIC = os.environ.get('SITESPEED_TOPIC', 'insert_sns_arn_here')
+
+# The string you want to use as the secret key for the webhook. This same string
+# must be entered as the Secret in the GitHub repo webhook settings.
+WEBHOOK_SECRET_TOKEN = os.environ.get('WEBHOOK_SECRET_TOKEN', 'insert_webhook_secret_here').encode('utf-8')
 
 
 class SnsError(Exception):
@@ -77,16 +84,25 @@ def parse_webhook_payload(event, data):
     return msg_id
 
 
-def is_valid_gh_event(event, data):
+def is_valid_gh_event(signature, event, contents, data):
     """ Verify that the webhook sent conforms to the GitHub API v3.
     Args:
-        event (string): GitHub event
+        signature (string): GitHub signature, from the request header
+        event (string): GitHub event, from the request header
+        contents (string): contents of the request
         data (dict): payload from the webhook
 
     Returns:
         True for valid GitHub events
         False otherwise
     """
+    secret = WEBHOOK_SECRET_TOKEN
+    if not signature:
+        # This is not a valid webhook from GitHub because
+        # those all send an X-Hub-Signature header.
+        LOGGER.error('The X-Hub-Signature header was not received in the request.')
+        return False
+
     if not event:
         # This is not a valid webhook from GitHub because
         # those all send an X-GitHub-Event header.
@@ -98,6 +114,25 @@ def is_valid_gh_event(event, data):
         # This is not a valid webhook from GitHub because
         # those all return the repository info in the JSON payload
         LOGGER.error('Invalid webhook payload: {}'.format(data))
+        return False
+
+    sha_name, gh_hash = signature.split('=')
+    if sha_name != 'sha1':
+        # A GitHub hash signature starts with sha1=, using the key
+        # of your secret token and your payload body.
+        LOGGER.error('Invalid X-Hub-Signature header: {}'.format(signature))
+        return False
+
+    computed_hash = hmac.new(secret, msg=contents, digestmod=hashlib.sha1).hexdigest()
+    # Note that compare_digest was backported to Python 2 in 2.7.7,
+    # so that is the minimum version of Python required.
+    if not hmac.compare_digest(gh_hash, computed_hash):
+        msg = '{} {} {}'.format(
+            'The received WebHook payload was not signed with the WEBHOOK_SECRET_TOKEN.',
+            'Received hash: {}'.format(gh_hash),
+            'Computed hash: {}'.format(computed_hash)
+        )
+        LOGGER.error(msg)
         return False
 
     return True

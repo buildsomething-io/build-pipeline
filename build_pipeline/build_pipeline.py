@@ -51,8 +51,9 @@ class PipelineHttpRequestHandler(BaseHTTPRequestHandler):
             return
 
         event = self.headers.get('X-GitHub-Event')
+        signature = self.headers.get('X-Hub-Signature')
 
-        if is_valid_gh_event(event, data):
+        if is_valid_gh_event(signature, event, contents, data):
             try:
                 LOGGER.debug("Received GitHub event: {}".format(event))
                 parse_webhook_payload(event, data)
@@ -71,5 +72,7 @@ def run(server_class=HTTPServer, handler_class=PipelineHttpRequestHandler):  # p
     httpd.serve_forever()
 
 
-if __name__ == "__main__":
-    run()  # pragma: no cover
+if __name__ == "__main__":  # pragma: no cover
+    if __package__ is None:
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    run()
