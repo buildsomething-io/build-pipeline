@@ -1,18 +1,22 @@
 """
 Tests for the helper methods
 """
+import hashlib
+import hmac
+import json
 from unittest import TestCase
 
 from mock import patch
 from moto import mock_sns
 
 from .utils import create_topic
-from ..helpers import publish_sns_messsage, SnsError, _compose_sns_message, parse_webhook_payload
+from ..helpers import publish_sns_messsage, SnsError, parse_webhook_payload, is_valid_gh_event
+from ..helpers import _compose_sns_message
 
 
 @mock_sns
 class SNSTestCase(TestCase):
-    """TestCase class for verifying the helper methods. """
+    """TestCase class for verifying helper methods that use SNS."""
 
     def test_nonexistent_sns_topic_arn(self):
         # There are no topics yet in the mocked SNS, so using
@@ -27,8 +31,8 @@ class SNSTestCase(TestCase):
         self.assertIsNotNone(msg_id)
 
 
-class HelperTestCase(TestCase):
-    """TestCase class for verifying the helper methods. """
+class ComposeTestCase(TestCase):
+    """TestCase class for verifying the method that composes the message."""
     def test_compose_message(self):
         msg = _compose_sns_message('org', 'repo')
         self.assertEqual(
@@ -36,6 +40,9 @@ class HelperTestCase(TestCase):
             {'default': '{"owner": {"name": "org"}, "url": "https://github.com/org/repo", "name": "repo"}'}
         )
 
+
+class ParsePayloadTestCase(TestCase):
+    """TestCase class for verifying the helper method for parsing the payload."""
     @patch('build_pipeline.helpers.HANDLED_REPO', 'org/repo')
     @patch('build_pipeline.helpers.publish_sns_messsage')
     def test_webhook_payload_handled(self, mock_publish):
@@ -63,3 +70,37 @@ class HelperTestCase(TestCase):
 
         result = parse_webhook_payload('deployment', payload)
         self.assertEqual(result, None)
+
+
+class GitHubEventTestCase(TestCase):
+    """TestCase class for verifying GitHub events."""
+    def test_no_signature(self):
+        result = is_valid_gh_event(None, 'my_event', 'abc', {'repository': {'full_name': 'hello'}})
+        self.assertFalse(result)
+
+    def test_no_event(self):
+        result = is_valid_gh_event('sha1=foo', None, 'abc', {'repository': {'full_name': 'hello'}})
+        self.assertFalse(result)
+
+    def test_no_repo(self):
+        result = is_valid_gh_event('sha1=foo', 'my_event', 'abc', {'repository': {}})
+        self.assertFalse(result)
+
+    def test_wrong_sig_string(self):
+        result = is_valid_gh_event('xyz=foo', 'my_event', 'abc', {'repository': {'full_name': 'hello'}})
+        self.assertFalse(result)
+
+    @patch('build_pipeline.helpers.WEBHOOK_SECRET_TOKEN', 'my_token')
+    def test_incorrect_signature(self):
+        data = {'repository': {'full_name': 'hello'}}
+        contents = json.dumps(data)
+        result = is_valid_gh_event('sha1=something_else', 'my_event', contents, data)
+        self.assertFalse(result)
+
+    @patch('build_pipeline.helpers.WEBHOOK_SECRET_TOKEN', 'my_token')
+    def test_good_signature(self):
+        data = {'repository': {'full_name': 'hello'}}
+        contents = json.dumps(data)
+        my_hash = hmac.new('my_token', msg=contents, digestmod=hashlib.sha1).hexdigest()
+        result = is_valid_gh_event('sha1={}'.format(my_hash), 'my_event', contents, data)
+        self.assertTrue(result)
