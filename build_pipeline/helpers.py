@@ -149,7 +149,7 @@ def publish_sns_messsage(topic_arn, message):
         string: The MessageId of the published message
 
     Raises:
-        SnsError when publising was unsuccessful
+        SnsError when publishing was unsuccessful
     """
     try:
         LOGGER.debug('Publishing to {}. Message is {}'.format(topic_arn, message))
@@ -187,14 +187,12 @@ def _compose_sns_message(repo_org, repo_name):
     from the SQS Queue and trigger any jobs that have a matching github repository configuration.
 
     """
-    message = {}
     repo = {}
     repo['name'] = repo_name
     repo['owner'] = {'name': '{org}'.format(org=repo_org)}
     repo['url'] = 'https://github.com/{org}/{name}'.format(org=repo_org, name=repo_name)
-    message['default'] = "{}".format(json.dumps(repo))
-
-    return message
+    repository = {'repository': repo}
+    return repository
 
 
 def handle_deployment_event(topic, repo_org, repo_name, deployment):
