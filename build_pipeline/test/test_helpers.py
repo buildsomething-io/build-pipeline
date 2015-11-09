@@ -37,7 +37,7 @@ class ComposeTestCase(TestCase):
         msg = _compose_sns_message('org', 'repo')
         self.assertEqual(
             msg,
-            {'default': '{"owner": {"name": "org"}, "url": "https://github.com/org/repo", "name": "repo"}'}
+            {"repository": {"owner": {"name": "org"}, "url": "https://github.com/org/repo", "name": "repo"}}
         )
 
 
