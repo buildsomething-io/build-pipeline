@@ -33,42 +33,59 @@ class SNSTestCase(TestCase):
 
 class ComposeTestCase(TestCase):
     """TestCase class for verifying the method that composes the message."""
-    def test_compose_message(self):
+    def test_compose_message_default_format(self):
         msg = _compose_sns_message('org', 'repo')
         self.assertEqual(
             msg,
             {"repository": {"owner": {"name": "org"}, "url": "https://github.com/org/repo", "name": "repo"}}
         )
 
+    def test_compose_message_with_custom_data(self):
+        custom_data = {'job': 'myProject'}
+        msg = _compose_sns_message('org', 'repo', custom_data=custom_data)
+        self.assertEqual(msg, {"custom_format": True, "job": "myProject"})
+
+    def test_compose_message_with_custom_data_and_parameters(self):
+        custom_data = {'job': 'myProject', 'parameters': [{'name': 'foo', 'value': True, 'type': 'boolean'}]}
+        msg = _compose_sns_message('org', 'repo', custom_data=custom_data)
+        self.assertEqual(
+            msg,
+            {
+                "custom_format": True,
+                "job": "myProject",
+                "parameters": [{"name": "foo", "type": "boolean", "value": True}]
+            }
+        )
+
 
 class ParsePayloadTestCase(TestCase):
     """TestCase class for verifying the helper method for parsing the payload."""
+    def setUp(self):
+        super(ParsePayloadTestCase, self).setUp()
+        self.payload = {
+            'repository': {'full_name': 'org/repo'},
+            'deployment': {'id': '1234'}
+        }
+
     @patch('build_pipeline.helpers.HANDLED_REPO', 'org/repo')
     @patch('build_pipeline.helpers.publish_sns_messsage')
     def test_webhook_payload_handled(self, mock_publish):
         mock_publish.return_value = 'foo'
-        payload = {'repository': {'full_name': 'org/repo'}}
-
-        result = parse_webhook_payload('deployment', payload)
+        result = parse_webhook_payload('deployment', self.payload)
         self.assertEqual(result, 'foo')
 
     @patch('build_pipeline.helpers.HANDLED_REPO', 'org/repo')
     def test_webhook_payload_unhandled_event(self):
-        payload = {'repository': {'full_name': 'org/repo'}}
-
-        result = parse_webhook_payload('foo', payload)
+        result = parse_webhook_payload('foo', self.payload)
         self.assertEqual(result, None)
 
     def test_webhook_payload_unhandled_repo(self):
-        payload = {'repository': {'full_name': 'org/repo'}}
-
-        result = parse_webhook_payload('deployment', payload)
+        result = parse_webhook_payload('deployment', self.payload)
         self.assertEqual(result, None)
 
     def test_webhook_payload_bad_payload(self):
-        payload = "string"
-
-        result = parse_webhook_payload('deployment', payload)
+        string_payload = "string"
+        result = parse_webhook_payload('deployment', string_payload)
         self.assertEqual(result, None)
 
 

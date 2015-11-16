@@ -3,6 +3,7 @@ Helper methods for triggering the next step in the deployment pipeline
 """
 import hashlib
 import hmac
+import json
 import os
 
 from boto import connect_sns
@@ -18,6 +19,10 @@ HANDLED_REPO = '{org}/{name}'.format(org=PIPELINE_REPO_ORG, name=PIPELINE_REPO_N
 # The unique ARNs (Amazon Resource Name) for the SNS topics
 PROVISIONING_TOPIC = os.environ.get('PROVISIONING_TOPIC', 'insert_sns_arn_here')
 SITESPEED_TOPIC = os.environ.get('SITESPEED_TOPIC', 'insert_sns_arn_here')
+
+# The Jenkins jobs for triggering the builds
+PROVISIONING_JOB = os.environ.get('PROVISIONING_JOB', 'prov_job')
+SITESPEED_JOB = os.environ.get('SITESPEED_JOB', 'sitespeed_job')
 
 # The string you want to use as the secret key for the webhook. This same string
 # must be entered as the Secret in the GitHub repo webhook settings.
@@ -143,6 +148,7 @@ def publish_sns_messsage(topic_arn, message):
     Args:
         topic_arn (string): The arn representing the topic
         message (string): The message to send
+        ci_data (dict): Metadata to pass to the CI system
 
     Returns:
         string: The MessageId of the published message
@@ -151,6 +157,9 @@ def publish_sns_messsage(topic_arn, message):
         SnsError when publishing was unsuccessful
     """
     try:
+        # Dump the json object into a string.
+        # This will handle the parameter strings correctly rather than submitting them with a u' prefix.
+        message = json.dumps(message)
         LOGGER.debug('Publishing to {}. Message is {}'.format(topic_arn, message))
         conn = connect_sns()
         response = conn.publish(topic=topic_arn, message=message)
@@ -178,20 +187,50 @@ def publish_sns_messsage(topic_arn, message):
     return message_id
 
 
-def _compose_sns_message(repo_org, repo_name):
+def _compose_sns_message(repo_org, repo_name, custom_data=None):
     """ Compose the message to publish to the SNS topic.
 
     Note that an SQS queue must be subscribed to the SNS topic, the Jenkins main configuration
-    must be set up to be listening to that queue. The Jenkins SQS plugin will then consume messages
-    from the SQS Queue and trigger any jobs that have a matching github repository configuration.
+    must be set up to be listening to that queue.
+
+    The Jenkins SQS plugin will then consume messages from the SQS Queue.
+    Two message formats are available:
+    * default message format: this will trigger any jobs that have a matching github repository configuration
+    * custom message format: Signalled by a custom_format object of any value, this must also contain
+        the name of the job to trigger, and can optionally contain parameters to pass to the job.
 
     """
-    repo = {}
-    repo['name'] = repo_name
-    repo['owner'] = {'name': '{org}'.format(org=repo_org)}
-    repo['url'] = 'https://github.com/{org}/{name}'.format(org=repo_org, name=repo_name)
-    repository = {'repository': repo}
-    return repository
+    if not custom_data:
+        repo = {}
+        repo['name'] = repo_name
+        repo['owner'] = {'name': '{org}'.format(org=repo_org)}
+        repo['url'] = 'https://github.com/{org}/{name}'.format(org=repo_org, name=repo_name)
+        return {'repository': repo}
+
+    elif not isinstance(custom_data, dict):
+        raise ValueError('Custom data must be passed as a dict')
+
+    custom_data['custom_format'] = True
+    return custom_data
+
+
+def _compose_custom_data(deployment):
+    """ Compose the metadata to pass to the CI system.
+
+    Args:
+        deployment (dict): deployment object from the webhook payload
+
+    Returns:
+        dict: data to include in the message to the CI system
+    """
+    return {
+        'parameters': [
+            {'name': 'deployment_id', 'type': 'string', 'value': deployment.get('id', '')},
+            {'name': 'sha', 'type': 'string', 'value': deployment.get('sha', '')},
+            {'name': 'task', 'type': 'string', 'value': deployment.get('task', '')},
+            {'name': 'environment', 'type': 'string', 'value': deployment.get('environment', '')}
+        ]
+    }
 
 
 def handle_deployment_event(topic, repo_org, repo_name, deployment):
@@ -222,8 +261,10 @@ def handle_deployment_event(topic, repo_org, repo_name, deployment):
     # 'success' in order to trigger the next job in the pipeline.
     LOGGER.info('Received deployment event')
     LOGGER.debug(deployment)
-
-    msg_id = publish_sns_messsage(topic_arn=topic, message=_compose_sns_message(repo_org, repo_name))
+    custom_data = _compose_custom_data(deployment)
+    custom_data['job'] = PROVISIONING_JOB
+    message = _compose_sns_message(repo_org, repo_name, custom_data)
+    msg_id = publish_sns_messsage(topic_arn=topic, message=message)
     return msg_id
 
 
@@ -251,9 +292,13 @@ def handle_deployment_status_event(topic, repo_org, repo_name, deployment, deplo
     state = deployment_status.get('state')
 
     if state == 'success':
+        custom_data = _compose_custom_data(deployment)
+        custom_data['job'] = SITESPEED_JOB
+
         # Continue the next job in the pipeline by publishing an SNS message that will trigger
         # the sitespeed job.
-        msg_id = publish_sns_messsage(topic_arn=topic, message=_compose_sns_message(repo_org, repo_name))
+        message = _compose_sns_message(repo_org, repo_name, custom_data)
+        msg_id = publish_sns_messsage(topic_arn=topic, message=message)
         return msg_id
 
     return None
