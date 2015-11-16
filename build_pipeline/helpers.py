@@ -3,7 +3,6 @@ Helper methods for triggering the next step in the deployment pipeline
 """
 import hashlib
 import hmac
-import json
 import os
 
 from boto import connect_sns
@@ -144,6 +143,7 @@ def publish_sns_messsage(topic_arn, message):
     Args:
         topic_arn (string): The arn representing the topic
         message (string): The message to send
+        ci_data (dict): Metadata to pass to the CI system
 
     Returns:
         string: The MessageId of the published message
@@ -179,7 +179,7 @@ def publish_sns_messsage(topic_arn, message):
     return message_id
 
 
-def _compose_sns_message(repo_org, repo_name):
+def _compose_sns_message(repo_org, repo_name, ci_data=None):
     """ Compose the message to publish to the SNS topic.
 
     Note that an SQS queue must be subscribed to the SNS topic, the Jenkins main configuration
@@ -191,8 +191,24 @@ def _compose_sns_message(repo_org, repo_name):
     repo['name'] = repo_name
     repo['owner'] = {'name': '{org}'.format(org=repo_org)}
     repo['url'] = 'https://github.com/{org}/{name}'.format(org=repo_org, name=repo_name)
-    repository = {'repository': repo}
-    return repository
+    ci_data = ci_data or {}
+    return {'repository': repo, 'ci_data': ci_data}
+
+
+def _compose_ci_metadata(deployment):
+    """ Compose the metadata to pass to the CI system.
+
+    Args:
+        deployment (dict): deployment object from the webhook payload
+
+    Returns:
+        dict: data to include in the message to the CI system
+    """
+    return {
+        'deployment_id': deployment.get('id'),
+        'sha': deployment.get('sha'),
+        'payload': deployment.get('payload')
+    }
 
 
 def handle_deployment_event(topic, repo_org, repo_name, deployment):
@@ -223,8 +239,8 @@ def handle_deployment_event(topic, repo_org, repo_name, deployment):
     # 'success' in order to trigger the next job in the pipeline.
     LOGGER.info('Received deployment event')
     LOGGER.debug(deployment)
-
-    msg_id = publish_sns_messsage(topic_arn=topic, message=_compose_sns_message(repo_org, repo_name))
+    ci_data = _compose_ci_metadata(deployment)
+    msg_id = publish_sns_messsage(topic_arn=topic, message=_compose_sns_message(repo_org, repo_name, ci_data))
     return msg_id
 
 
@@ -252,9 +268,11 @@ def handle_deployment_status_event(topic, repo_org, repo_name, deployment, deplo
     state = deployment_status.get('state')
 
     if state == 'success':
+        ci_data = _compose_ci_metadata(deployment)
+
         # Continue the next job in the pipeline by publishing an SNS message that will trigger
         # the sitespeed job.
-        msg_id = publish_sns_messsage(topic_arn=topic, message=_compose_sns_message(repo_org, repo_name))
+        msg_id = publish_sns_messsage(topic_arn=topic, message=_compose_sns_message(repo_org, repo_name, ci_data))
         return msg_id
 
     return None
