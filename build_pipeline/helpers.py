@@ -3,7 +3,6 @@ Helper methods for triggering the next step in the deployment pipeline
 """
 import hashlib
 import hmac
-import json
 import os
 
 from boto import connect_sns

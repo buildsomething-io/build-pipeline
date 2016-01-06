@@ -1,3 +1,6 @@
 # Local tweaks to pylintrc for this repo.
+[MASTER]
+load-plugins = edx_lint.pylint
+
 [MESSAGES CONTROL]
-disable+ = ,logging-format-interpolation
+disable+ = ,logging-format-interpolation,wrong-import-order

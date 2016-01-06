@@ -22,7 +22,6 @@
 #
 # ------------------------------
 [MASTER]
-profile = no
 ignore = 
 persistent = yes
 load-plugins = edx_lint.pylint
@@ -49,17 +48,15 @@ disable =
 	too-many-arguments,
 	too-many-locals,
 	unused-wildcard-import,
-	duplicate-code,logging-format-interpolation
+	duplicate-code,logging-format-interpolation,wrong-import-order
 
 [REPORTS]
 output-format = text
 files-output = no
 reports = no
 evaluation = 10.0 - ((float(5 * error + warning + refactor + convention) / statement) * 10)
-comment = no
 
 [BASIC]
-required-attributes = 
 bad-functions = map,filter,apply,input
 module-rgx = (([a-z_][a-z0-9_]*)|([A-Z][a-zA-Z0-9]+))$
 const-rgx = (([A-Z_][A-Z0-9_]*)|(__.*__)|log|urlpatterns)$
@@ -73,7 +70,7 @@ class-attribute-rgx = ([A-Za-z_][A-Za-z0-9_]{2,30}|(__.*__))$
 inlinevar-rgx = [A-Za-z_][A-Za-z0-9_]*$
 good-names = f,i,j,k,db,ex,Run,_,__
 bad-names = foo,bar,baz,toto,tutu,tata
-no-docstring-rgx = __.*__|test_.+|setUp|tearDown
+no-docstring-rgx = __.*__$|test_.+|setUp$|setUpClass$|tearDown$|tearDownClass$|Meta$
 docstring-min-length = -1
 
 [FORMAT]
@@ -96,7 +93,7 @@ ignore-imports = no
 [TYPECHECK]
 ignore-mixin-members = yes
 ignored-classes = SQLObject
-zope = no
+unsafe-load-any-extension = yes
 generated-members = 
 	REQUEST,
 	acl_users,
@@ -126,7 +123,6 @@ dummy-variables-rgx = _|dummy|unused|.*_unused
 additional-builtins = 
 
 [CLASSES]
-ignore-iface-methods = isImplementedBy,deferred,extends,names,namesAndDescriptions,queryDescriptionFor,getBases,getDescriptionFor,getDoc,getName,getTaggedValue,getTaggedValueTags,isEqualOrExtendedBy,setTaggedValue,isImplementedByInstancesOf,adaptWith,is_implemented_by
 defining-attr-methods = __init__,__new__,setUp
 valid-classmethod-first-arg = cls
 valid-metaclass-classmethod-first-arg = mcs
@@ -152,4 +148,4 @@ int-import-graph =
 [EXCEPTIONS]
 overgeneral-exceptions = Exception
 
-# f4adac5343e103ffb91de8583b913dd43787b27e
+# dfe54c1f75d078ec0ee1fb971fea5899a893cb3b
